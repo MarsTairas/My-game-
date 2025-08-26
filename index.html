@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pixel War Mobile</title>
+  <style>
+    body {
+      margin: 0;
+      background: #1a252f;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    canvas {
+      background: #2c3e50;
+      border: 4px solid #fff;
+      margin-top: 10px;
+    }
+    .controls {
+      display: flex;
+      justify-content: center;
+      margin-top: 10px;
+    }
+    .btn {
+      width: 60px;
+      height: 60px;
+      margin: 5px;
+      font-size: 20px;
+      border: none;
+      border-radius: 10px;
+      background: #34495e;
+      color: white;
+    }
+    .fire {
+      background: #e74c3c;
+      width: 80px;
+      height: 80px;
+      font-size: 22px;
+    }
+  </style>
+</head>
+<body>
+  <h2 style="color:white">Pixel War Mobile</h2>
+  <canvas id="gameCanvas" width="600" height="400"></canvas>
+
+  <!-- Kontrol -->
+  <div class="controls">
+    <button class="btn" ontouchstart="keys['w']=true" ontouchend="keys['w']=false">↑</button>
+  </div>
+  <div class="controls">
+    <button class="btn" ontouchstart="keys['a']=true" ontouchend="keys['a']=false">←</button>
+    <button class="btn fire" ontouchstart="shoot()">FIRE</button>
+    <button class="btn" ontouchstart="keys['d']=true" ontouchend="keys['d']=false">→</button>
+  </div>
+  <div class="controls">
+    <button class="btn" ontouchstart="keys['s']=true" ontouchend="keys['s']=false">↓</button>
+  </div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+// Map lebih bergaya
+const mapWidth = 1500;
+const mapHeight = 1500;
+
+// Mini-map settings
+const miniMapSize = 200; 
+const miniMapScaleX = miniMapSize / mapWidth;
+const miniMapScaleY = miniMapSize / mapHeight;
+
+// Player
+let player = { 
+  x: mapWidth/2, y: mapHeight/2, size: 20, speed: 3, 
+  bullets: [], hp: 100, ammo: 30, reloading: false,
+  damage: 10, powerBuff: false, powerTimer: 0,
+  spreadShot: false
+};
+
+let enemies = [];
+let items = [];
+let level = 1;
+
+// Controls
+let keys = {};
+document.addEventListener("keydown", e => keys[e.key] = true);
+document.addEventListener("keyup", e => keys[e.key] = false);
+
+// Reload ammo
+function reload() {
+  if (!player.reloading) {
+    player.reloading = true;
+    setTimeout(() => {
+      player.ammo = 30;
+      player.reloading = false;
+    }, 3000);
+  }
+}
+
+// Shoot with auto aim + spread shot
+function shoot() {
+  if (player.reloading || player.ammo <= 0) {
+    reload();
+    return;
+  }
+  if (enemies.length === 0) return;
+
+  player.ammo--;
+
+  let nearest = enemies[0];
+  let minDist = Infinity;
+  enemies.forEach(enemy => {
+    let dx = enemy.x - player.x;
+    let dy = enemy.y - player.y;
+    let dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = enemy;
+    }
+  });
+
+  let dx = nearest.x - player.x;
+  let dy = nearest.y - player.y;
+  let dist = Math.sqrt(dx*dx + dy*dy);
+  let vx = (dx / dist) * 6;
+  let vy = (dy / dist) * 6;
+
+  // normal bullet
+  player.bullets.push({ x: player.x, y: player.y, size: 5, vx, vy, damage: player.damage });
+
+  // spread bullets jika sudah upgrade
+  if (player.spreadShot) {
+    player.bullets.push({ x: player.x, y: player.y, size: 5, vx: vx*0.8 - vy*0.3, vy: vy*0.8 + vx*0.3, damage: player.damage });
+    player.bullets.push({ x: player.x, y: player.y, size: 5, vx: vx*0.8 + vy*0.3, vy: vy*0.8 - vx*0.3, damage: player.damage });
+  }
+}
+
+// Spawn enemies
+function spawnEnemies(level) {
+  enemies = [];
+  let enemyHp = 20 + level * 5; 
+  let count = 3;
+
+  if (level > 10 && level % 5 === 0) {
+    count += Math.floor(level/5) - 2; // tambah musuh tiap 5 level setelah lvl 10
+  }
+
+  if (level % 10 === 0) {
+    enemies.push({ x: mapWidth/2, y: 200, size: 60, speed: 2, hp: enemyHp * 10, maxHp: enemyHp * 10, boss: "final" });
+  } else if (level % 5 === 0) {
+    enemies.push({ x: 200, y: 200, size: 40, speed: 1.5, hp: enemyHp * 5, maxHp: enemyHp * 5, boss: "mid" });
+  } else {
+    for (let i = 0; i < count; i++) {
+      enemies.push({ 
+        x: Math.random() * mapWidth, y: Math.random() * mapHeight, 
+        size: 20, speed: 1 + level * 0.1, hp: enemyHp, maxHp: enemyHp, boss: "normal" 
+      });
+    }
+  }
+}
+spawnEnemies(level);
+
+// Drop items
+function dropItem(x, y) {
+  let chance = Math.random();
+  if (chance < 0.3) {
+    let pool = ["heal","ammo","power"];
+    if (level > 10) pool.push("spread");
+    let type = pool[Math.floor(Math.random()*pool.length)];
+    items.push({x,y,size:15,type});
+  }
+}
+
+// Update loop
+function update() {
+  if (keys["w"]) player.y -= player.speed;
+  if (keys["s"]) player.y += player.speed;
+  if (keys["a"]) player.x -= player.speed;
+  if (keys["d"]) player.x += player.speed;
+
+  // batas map
+  if (player.x < 0) player.x = 0;
+  if (player.y < 0) player.y = 0;
+  if (player.x > mapWidth) player.x = mapWidth;
+  if (player.y > mapHeight) player.y = mapHeight;
+
+  // Bullets
+  player.bullets.forEach((b, i) => {
+    b.x += b.vx;
+    b.y += b.vy;
+    if (b.x < 0 || b.y < 0 || b.x > mapWidth || b.y > mapHeight) {
+      player.bullets.splice(i, 1);
+    }
+  });
+
+  // Enemy follow
+  enemies.forEach(enemy => {
+    let dx = player.x - enemy.x;
+    let dy = player.y - enemy.y;
+    let dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > 0) {
+      enemy.x += (dx / dist) * enemy.speed;
+      enemy.y += (dy / dist) * enemy.speed;
+    }
+  });
+
+  // Bullet vs enemy
+  enemies.forEach((enemy, ei) => {
+    player.bullets.forEach((b, bi) => {
+      if (b.x < enemy.x + enemy.size &&
+          b.x + b.size > enemy.x &&
+          b.y < enemy.y + enemy.size &&
+          b.y + b.size > enemy.y) {
+        enemy.hp -= b.damage;
+        player.bullets.splice(bi, 1);
+        if (enemy.hp <= 0) {
+          dropItem(enemy.x, enemy.y);
+          enemies.splice(ei, 1);
+        }
+      }
+    });
+  });
+
+  // Enemy vs player
+  enemies.forEach(enemy => {
+    if (player.x < enemy.x + enemy.size &&
+        player.x + player.size > enemy.x &&
+        player.y < enemy.y + enemy.size &&
+        player.y + player.size > enemy.y) {
+      player.hp -= (enemy.boss === "normal" ? 0.5 : enemy.boss === "mid" ? 1 : 2);
+    }
+  });
+
+  // Ambil item
+  items.forEach((it, ii) => {
+    if (player.x < it.x + it.size &&
+        player.x + player.size > it.x &&
+        player.y < it.y + it.size && 
+        player.y + player.size > it.y) {
+      if (it.type === "heal") player.hp = Math.min(100, player.hp+20);
+      if (it.type === "ammo") player.ammo = Math.min(30, player.ammo+15);
+      if (it.type === "power") {
+        player.powerBuff = true;
+        player.damage = 20;
+        player.powerTimer = 600;
+      }
+      if (it.type === "spread") {
+        player.spreadShot = true;
+      }
+      items.splice(ii,1);
+    }
+  });
+
+  // Buff timer
+  if (player.powerBuff) {
+    player.powerTimer--;
+    if (player.powerTimer <= 0) {
+      player.powerBuff = false;
+      player.damage = 10;
+    }
+  }
+
+  // Next level
+  if (enemies.length === 0) {
+    level++;
+    spawnEnemies(level);
+  }
+}
+
+// Draw loop
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  let camX = player.x - canvas.width/2;
+  let camY = player.y - canvas.height/2;
+
+  // Background bergaya
+  ctx.fillStyle = "#223";
+  ctx.fillRect(-camX, -camY, mapWidth, mapHeight);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  for (let gx = 0; gx < mapWidth; gx += 50) {
+    ctx.beginPath();
+    ctx.moveTo(gx - camX, -camY);
+    ctx.lineTo(gx - camX, mapHeight - camY);
+    ctx.stroke();
+  }
+  for (let gy = 0; gy < mapHeight; gy += 50) {
+    ctx.beginPath();
+    ctx.moveTo(-camX, gy - camY);
+    ctx.lineTo(mapWidth - camX, gy - camY);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "gray";
+  for (let i = 0; i < 40; i++) {
+    let rockX = (i * 97) % mapWidth;
+    let rockY = (i * 173) % mapHeight;
+    ctx.fillRect(rockX - camX, rockY - camY, 10, 10);
+  }
+
+  // Player
+  ctx.fillStyle = "lime";
+  ctx.fillRect(canvas.width/2, canvas.height/2, player.size, player.size);
+
+  // Bullets
+  ctx.fillStyle = "yellow";
+  player.bullets.forEach(b => {
+    ctx.fillRect(b.x - camX, b.y - camY, b.size, b.size);
+  });
+
+  // Enemies
+  enemies.forEach(enemy => {
+    if (enemy.boss === "final") ctx.fillStyle = "purple";
+    else if (enemy.boss === "mid") ctx.fillStyle = "orange";
+    else ctx.fillStyle = "red";
+    ctx.fillRect(enemy.x - camX, enemy.y - camY, enemy.size, enemy.size);
+
+    // HP bar musuh
+    ctx.fillStyle = "red";
+    ctx.fillRect(enemy.x - camX, enemy.y - camY - 10, enemy.size, 5);
+    ctx.fillStyle = "lime";
+    ctx.fillRect(enemy.x - camX, enemy.y - camY - 10, (enemy.hp / enemy.maxHp) * enemy.size, 5);
+  });
+
+  // Items
+  items.forEach(it => {
+    if (it.type === "heal") ctx.fillStyle = "pink";
+    if (it.type === "ammo") ctx.fillStyle = "cyan";
+    if (it.type === "power") ctx.fillStyle = "gold";
+    if (it.type === "spread") ctx.fillStyle = "blue";
+    ctx.fillRect(it.x - camX, it.y - camY, it.size, it.size);
+  });
+
+  // HUD
+  ctx.fillStyle = "white";
+  ctx.font = "14px Arial";
+  ctx.fillText("HP: " + Math.floor(player.hp), 10, 20);
+  ctx.fillText("Level: " + level, 10, 40);
+
+  ctx.fillStyle = "green";
+  ctx.fillRect(60, 10, player.hp * 2, 10);
+
+  ctx.fillStyle = "white";
+  ctx.fillText("Ammo:", 10, 60);
+  ctx.strokeStyle = "white";
+  ctx.strokeRect(60, 50, 100, 10);
+  ctx.fillStyle = player.ammo <= 5 ? "red" : "yellow";
+  ctx.fillRect(60, 50, (player.ammo/30)*100, 10);
+
+  if (player.reloading) {
+    ctx.fillStyle = "cyan";
+    ctx.fillText("Reloading...", 170, 60);
+  } else if (player.ammo <= 5) {
+    ctx.fillStyle = "red";
+    ctx.fillText("AMMO LOW!", 170, 60);
+  } else {
+    ctx.fillStyle = "white";
+    ctx.fillText(player.ammo + "/30", 170, 60);
+  }
+
+  if (player.powerBuff) {
+    ctx.fillStyle = "gold";
+    ctx.fillText("POWER UP!", 10, 80);
+  }
+  if (player.spreadShot) {
+    ctx.fillStyle = "blue";
+    ctx.fillText("SPREAD SHOT!", 10, 100);
+  }
+
+  // Mini-map
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(canvas.width - miniMapSize - 10, 10, miniMapSize, miniMapSize);
+  ctx.strokeStyle = "white";
+  ctx.strokeRect(canvas.width - miniMapSize - 10, 10, miniMapSize, miniMapSize);
+
+  ctx.fillStyle = "lime";
+  ctx.fillRect(canvas.width - miniMapSize - 10 + player.x*miniMapScaleX - 2,
+               10 + player.y*miniMapScaleY - 2, 4, 4);
+
+  enemies.forEach(enemy => {
+    ctx.fillStyle = (enemy.boss==="final") ? "purple" : (enemy.boss==="mid" ? "orange" : "red");
+    ctx.fillRect(canvas.width - miniMapSize - 10 + enemy.x*miniMapScaleX - 2,
+                 10 + enemy.y*miniMapScaleY - 2, 4, 4);
+  });
+
+  items.forEach(it => {
+    if (it.type==="heal") ctx.fillStyle="pink";
+    if (it.type==="ammo") ctx.fillStyle="cyan";
+    if (it.type==="power") ctx.fillStyle="gold";
+    if (it.type==="spread") ctx.fillStyle="blue";
+    ctx.fillRect(canvas.width - miniMapSize - 10 + it.x*miniMapScaleX - 2,
+                 10 + it.y*miniMapScaleY - 2, 4, 4);
+  });
+}
+
+function gameLoop() {
+  if (player.hp > 0) {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+  } else {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "white";
+    ctx.font = "30px Arial";
+    ctx.fillText("GAME OVER", canvas.width/2 - 80, canvas.height/2);
+    ctx.fillText("Level: " + level, canvas.width/2 - 50, canvas.height/2 + 40);
+  }
+}
+
+gameLoop();
+</script>
+</body>
+</html>
